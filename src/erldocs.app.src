@@ -1,0 +1,7 @@
+%% -*- mode: erlang -*-
+{application, erldocs,
+ [
+  {description, "TBD"},
+  {vsn, "0.1"},
+  {modules, []}
+ ]}.
