@@ -61,15 +61,20 @@
 
 -compile({parse_transform, forms_pt}).
 
+-compile(export_all).
 -export([parse_transform/2]).
 
 %% ========================================================================
 %%  Macro definitions
 %% ========================================================================
 
--define(DOC_ATTR(Var), {attribute, _, doc, Var}).
--define(FUNCTION(Var1, Var2), {function, _, Var1, Var2, _}).
-
+-define(DOC(Var), {attribute, _, doc, Var}).
+-define(FUN(Var1, Var2), {function, _, Var1, Var2, _}).
+-define(SPEC(Var1, Var2, Var3),
+        {attribute, _, spec,
+         {{Var1, _},
+          [{type, _, 'fun',
+            [{type, _, product, Var2}, Var3]}]}}).
 
 %% ========================================================================
 %%  Parse transform
@@ -92,10 +97,59 @@ parse([],  Acc) ->
     Acc;
 parse([_], Acc) ->
     Acc;
-parse([?DOC_ATTR(DocString), ?FUNCTION(Name, Arity)| Forms], Acc) ->
-    parse(Forms, [{Name, Arity, DocString}| Acc]);
+parse([?DOC(Doc), ?FUN(Name, Arity)| Forms], Acc) ->
+    parse(Forms, [{Name, Arity, doc_string(Name, Arity, Doc)}| Acc]);
+parse([?DOC(Doc), ?SPEC(Name, Args, Return), ?FUN(Name, Arity)| Forms], Acc) ->
+    Spec = printable_spec(Name, Args, Return),
+    parse(Forms, [{Name, Arity, doc_string(Name, Arity, Spec, Doc)}| Acc]);
 parse([_| Forms], Acc) ->
     parse(Forms, Acc).
+
+doc_string(Name, Arity, Doc) ->
+    lists:flatten(
+      string:join([
+                   io_lib:format("### ~p/~p", [Name, Arity]),
+                   Doc
+                  ],
+                  "\n")).
+
+doc_string(Name, Arity, Spec, Doc) ->
+    lists:flatten(
+      string:join([
+                   io_lib:format("### ~p/~p", [Name, Arity]),
+                   Spec,
+                   Doc
+                  ],
+                  "\n")).
+
+%% TODO: Investigate why forms:from_abstract/1 does not work well with
+%%       specs.
+printable_spec(Name, Args, Return) ->
+    io_lib:format("    ~p(~s) -> ~s",
+                  [
+                   Name,
+                   printable_args(Args),
+                   printable_type(Return)
+                  ]).
+
+printable_args(Args) ->
+    Args1 = [ printable_arg(A) || A <- Args ],
+    string:join(Args1, ", ").
+
+printable_arg({ann_type, _, [{var, _, Var}, Type]}) ->
+    io_lib:format("~p :: ~s", [Var, printable_type(Type)]);
+printable_arg(Type) ->
+    printable_type(Type).
+
+printable_type({type, _, union, Types}) ->
+    Types1 = [ printable_type(T) || T <- Types ],
+    string:join(Types1, " | ");
+printable_type({type, _, Name, Types}) ->
+    Types1 = [ printable_type(T) || T <- Types ],
+    Types2 = string:join(Types1, ", "),
+    io_lib:format("~p(~s)", [Name, Types2]);
+printable_type({_, _, T}) ->
+    io_lib:format("~p", [T]).
 
 delete_doc_attrs(Forms) ->
     lists:foldr(fun({attribute, _, doc, _}, Acc) ->
